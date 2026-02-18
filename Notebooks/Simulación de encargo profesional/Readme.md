@@ -66,5 +66,4 @@ Tras el análisis, se obtuvieron las siguientes conclusiones estratégicas:
 3.  Ejecutar el notebook `Análisis.ipynb` en Jupyter Lab, VS Code o Google Colab.
 
 ---
-*Autor: [Tu Nombre]*
 *Portfolio de Data Science & Operations Analytics*
