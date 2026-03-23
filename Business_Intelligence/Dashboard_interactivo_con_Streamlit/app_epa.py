@@ -11,20 +11,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 1. CARGA Y LIMPIEZA DE DATOS (ETL DEFINITIVO) ---
+# --- 1. CARGA Y LIMPIEZA DE DATOS (ETL DEFINITIVO CON URL) ---
 @st.cache_data
 def load_data():
-    # Detectamos la ruta donde está este script para encontrar el CSV al lado
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(current_dir, "vehicles.csv")
+    # URL directa (Raw) al CSV en GitHub. Esto no fallará ni en local ni en la nube.
+    url = "https://raw.githubusercontent.com/VRodOrt/Trabajos/main/Business_Intelligence/Dashboard_interactivo_con_Streamlit/vehicles.csv"
     
-    if not os.path.exists(path):
-        st.error(f"No se encontró 'vehicles.csv' en: {path}")
-        return None
-
     try:
-        # Carga
-        df = pd.read_csv(path, low_memory=False)
+        # Carga directa desde la web
+        df = pd.read_csv(url, low_memory=False)
         
         # Renombrado
         cols_map = {
@@ -71,7 +66,7 @@ def load_data():
 
         return df
     except Exception as e:
-        st.error(f"Error procesando el CSV: {e}")
+        st.error(f"Error procesando el CSV desde GitHub: {e}")
         return None
 
 # --- 2. CEREBRO INTELIGENTE ---
