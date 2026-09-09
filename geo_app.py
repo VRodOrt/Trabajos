@@ -218,6 +218,9 @@ fig.update_layout(
     margin={"r": 0, "t": 40, "l": 0, "b": 0},
     height=600
 )
+st.warning("🕵️‍♂️ MODO DIAGNÓSTICO ACTIVADO")
+st.write("1. Primeros 5 países listos para cruzar:", df_geo[['pais', 'pais_geojson_exacto']].head())
+st.write("2. Propiedades exactas del primer país en el GeoJSON:", geojson_europa['features'][0]['properties'])
 
 st.plotly_chart(fig, use_container_width=True)
 
