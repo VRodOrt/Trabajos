@@ -13,15 +13,19 @@ st.set_page_config(
 )
 
 # --- 1. CONEXIÓN A POSTGRESQL Y CARGA DE DATOS ---
-# Gestión dinámica de credenciales: Lee de Secrets en Streamlit Cloud o cae en valor por defecto
 if "postgres" in st.secrets:
     CADENA_CONEXION_PG = st.secrets["postgres"]["db_url"]
 else:
-    CADENA_CONEXION_PG = "postgresql://etl_user:etl_password@dpg-xxxxxx-a.frankfurt-postgres.render.com/etl_database"
+    # Agregamos ?sslmode=require al final para permitir conexiones SSL con Render
+    CADENA_CONEXION_PG = "postgresql://etl_user:etl_password@dpg-xxxxxx-a.frankfurt-postgres.render.com/etl_database?sslmode=require"
 
 @st.cache_data(ttl=3600)
 def cargar_datos_desde_db():
-    engine = create_engine(CADENA_CONEXION_PG)
+    # connect_args garantiza el handshake SSL exigido por Render
+    engine = create_engine(
+        CADENA_CONEXION_PG,
+        connect_args={"sslmode": "require"}
+    )
     df = pd.read_sql("SELECT * FROM tb_indicadores_europa;", engine)
     
     # URL GeoJSON oficial de Europa
