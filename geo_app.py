@@ -189,8 +189,14 @@ with contenedor_kpis:
     if categoria_seleccionada == "📐 Categoría Territorial":
         k1.metric("Población Total (Europa)", f"{df_geo['poblacion'].sum() / 1e6:.1f} Millones")
         k2.metric("Superficie Total", f"{df_geo['superficie_km2'].sum() / 1e6:.2f} M km²")
-        pais_pob_max = df_geo.loc[df_geo['poblacion'].idxmax(), 'pais']
-        k3.metric("Nación más poblada", pais_pob_max)
+        
+        # El tercer KPI cambia según lo que elijas en el segundo desplegable
+        if indicador_seleccionado == "Población":
+            pais_max = df_geo.loc[df_geo['poblacion'].idxmax(), 'pais']
+            k3.metric("Nación más poblada", pais_max)
+        else:
+            pais_max = df_geo.loc[df_geo['superficie_km2'].idxmax(), 'pais']
+            k3.metric("Nación más extensa", pais_max)
 
     elif categoria_seleccionada == "💶 Categoría Económica":
         k1.metric("PIB Total (Europa)", f"{df_geo['pib_miles_millones_eur'].sum():,.0f} mil M €")
