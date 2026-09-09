@@ -192,7 +192,7 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 # Configuración del indicador elegido
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# Generación del gráfico con Plotly
+# Generación forzada del Mapa Coroplético pasando explícitamente el alcance y proyección
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
@@ -202,6 +202,7 @@ fig = px.choropleth(
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
     hover_name='pais',
+    projection="natural earth",
     hover_data={
         cfg['columna']: False,
         'pais_mapa': False,
@@ -217,7 +218,13 @@ fig = px.choropleth(
     }
 )
 
-fig.update_geos(fitbounds="locations", visible=False, projection_type="natural earth")
+# Ajuste visual del alcance enfocado exclusivamente en Europa
+fig.update_geos(
+    fitbounds="locations", 
+    visible=False, 
+    showcountries=True,
+    countrycolor="LightGrey"
+)
 fig.update_layout(margin={"r":0, "t":40, "l":0, "b":0}, height=560)
 
 # Renderizar el mapa
