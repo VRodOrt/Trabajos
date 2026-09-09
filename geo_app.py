@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import requests
 from sqlalchemy import create_engine
 
 # --- CONFIGURACIÓN DE PÁGINA STREAMLIT ---
@@ -25,15 +24,10 @@ def cargar_datos_desde_db():
         connect_args={"sslmode": "require"}
     )
     df = pd.read_sql("SELECT * FROM tb_indicadores_europa;", engine)
-    
-    # GeoJSON oficial de países del mundo (GeoJSON de alta compatibilidad con ID de 3 letras)
-    url_geojson = "https://raw.githubusercontent.com/python-visualization/folium-example-data/main/world_countries.json"
-    geojson = requests.get(url_geojson).json()
-    
-    return df, geojson
+    return df
 
 try:
-    df_indicadores, geojson_europa = cargar_datos_desde_db()
+    df_indicadores = cargar_datos_desde_db()
 except Exception as e:
     st.error(f"⚠️ Error de conexión a PostgreSQL: {e}")
     st.stop()
@@ -56,7 +50,7 @@ df_geo['intensidad_log'] = np.log10(df_geo['pib_por_km2'])
 df_geo['pib_pc_fmt'] = df_geo['pib_per_capita'].apply(lambda x: f"{x:,.2f} €")
 df_geo['densidad_fmt'] = df_geo['densidad_poblacional'].apply(lambda x: f"{x:,.2f} hab/km²")
 
-# --- 3. MAPEADOR DE NOMBRES A ISO3 PARA PLOTLY ---
+# --- 3. MAPEADOR EXHAUSTIVO ISO ALPHA-3 (SIN VALORES NULOS) ---
 MAPEO_ISO3 = {
     'albania': 'ALB', 'andorra': 'AND', 'austria': 'AUT', 'belarus': 'BLR',
     'belgium': 'BEL', 'bosnia and herzegovina': 'BIH', 'bulgaria': 'BGR',
@@ -72,7 +66,10 @@ MAPEO_ISO3 = {
     'united kingdom': 'GBR', 'vatican city': 'VAT'
 }
 
-df_geo['iso_a3'] = df_geo['pais_clean'].str.lower().map(MAPEO_ISO3)
+df_geo['iso_alpha'] = df_geo['pais_clean'].str.lower().map(MAPEO_ISO3)
+
+# Filtrar registros que no hayan podido mapearse a un código ISO válido
+df_geo = df_geo.dropna(subset=['iso_alpha']).copy()
 
 # --- 4. CONFIGURACIÓN DE CATEGORÍAS Y DESCRIPCIONES ---
 DESCRIPCION_CATEGORIAS = {
@@ -164,18 +161,19 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# GENERACIÓN CON PROYECCIÓN NATIVA DE PLOTLY MEDIANTE ISO-3 (Sin fallos de renderizado)
+# DIBUJO DEL MAPA MEDIANTE LA CARTOGRAFÍA VECTORIAL DE PLOTLY
 fig = px.choropleth(
     df_geo,
-    locations='iso_a3',
+    locations="iso_alpha",
     color=cfg['columna'],
-    hover_name='pais',
+    hover_name="pais",
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
-    scope='europe', # Fuerza la proyección exclusiva en el continente europeo
+    locationmode="ISO-3",
+    scope="europe",
     hover_data={
         cfg['columna']: False,
-        'iso_a3': False,
+        'iso_alpha': False,
         'pib_pc_fmt': True,
         'densidad_fmt': True
     },
@@ -191,10 +189,13 @@ fig.update_geos(
     countrycolor="LightGrey",
     showsubunits=True,
     showframe=False,
-    projection_type="natural earth"
+    visible=True
 )
 
-fig.update_layout(margin={"r":0, "t":40, "l":0, "b":0}, height=580)
+fig.update_layout(
+    margin={"r":0, "t":40, "l":0, "b":0},
+    height=580
+)
 
 st.plotly_chart(fig, use_container_width=True)
 
