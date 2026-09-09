@@ -84,7 +84,7 @@ DICCIONARIO_NOMBRES = {
 
 df_geo['pais_english'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
 
-# EL TRUCO ESTÁ AQUÍ: Extraemos los nombres puros del GeoJSON y creamos un índice de búsqueda
+# Extraemos los nombres puros del GeoJSON y creamos un índice de búsqueda
 nombres_en_geojson = {}
 for feature in geojson_europa['features']:
     nombre_real = feature['properties'].get('NAME', '')
@@ -218,9 +218,6 @@ fig.update_layout(
     margin={"r": 0, "t": 40, "l": 0, "b": 0},
     height=600
 )
-st.warning("🕵️‍♂️ MODO DIAGNÓSTICO ACTIVADO")
-st.write("1. Primeros 5 países listos para cruzar:", df_geo[['pais', 'pais_geojson_exacto']].head())
-st.write("2. Propiedades exactas del primer país en el GeoJSON:", geojson_europa['features'][0]['properties'])
 
 st.plotly_chart(fig, use_container_width=True)
 
