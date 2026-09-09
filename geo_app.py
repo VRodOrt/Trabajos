@@ -4,7 +4,6 @@ import numpy as np
 import plotly.express as px
 import requests
 import unicodedata
-import streamlit.components.v1 as components
 from sqlalchemy import create_engine, text
 
 # --- CONFIGURACIÓN DE PÁGINA STREAMLIT ---
@@ -55,7 +54,7 @@ cols_num = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_p
 for c in cols_num:
     df_geo[c] = pd.to_numeric(df_geo[c], errors='coerce')
 
-# Diccionario de equivalencias universales (Base de Datos -> GeoJSON NAME)
+# Diccionario de equivalencias universales
 DICCIONARIO_NOMBRES = {
     'spain': 'Spain', 'espana': 'Spain',
     'france': 'France', 'francia': 'France',
@@ -93,24 +92,26 @@ DICCIONARIO_NOMBRES = {
     'liechtenstein': 'Liechtenstein', 'vatican city': 'Vatican', 'vaticano': 'Vatican'
 }
 
-df_geo['pais_geojson'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
+# SOLUCIÓN 1: Convertir TODO el diccionario a minúsculas para forzar una coincidencia absoluta
+diccionario_minusculas = {k: v.lower() for k, v in DICCIONARIO_NOMBRES.items()}
+df_geo['pais_match'] = df_geo['pais_limpio'].map(diccionario_minusculas).fillna(df_geo['pais_limpio'])
 
-# Mapear e inyectar directamente la clave NAME_MATCH en el GeoJSON
+# SOLUCIÓN 2: Crear un ID_MATCH en el GeoJSON completamente en minúsculas y buscar en varias propiedades
 for feature in geojson_europa['features']:
-    prop_name = limpiar_cadena(feature['properties'].get('NAME', ''))
+    props = feature['properties']
+    # A veces el GeoJSON usa 'name', otras 'NAME', otras 'ADMIN'
+    raw_name = props.get('NAME', props.get('name', props.get('ADMIN', props.get('admin', ''))))
+    prop_name = limpiar_cadena(str(raw_name))
     
-    if 'bosnia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Bosnia and Herzegovina'
-    elif 'serbia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Republic of Serbia'
-    elif 'macedonia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Macedonia'
-    elif 'czech' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Czech Republic'
-    elif 'moldova' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Moldova'
-    else:
-        feature['properties']['NAME_MATCH'] = feature['properties'].get('NAME', '')
+    # Excepciones
+    if 'bosnia' in prop_name: prop_name = 'bosnia and herzegovina'
+    elif 'serbia' in prop_name: prop_name = 'republic of serbia'
+    elif 'macedonia' in prop_name: prop_name = 'macedonia'
+    elif 'czech' in prop_name: prop_name = 'czech republic'
+    elif 'moldova' in prop_name: prop_name = 'moldova'
+    
+    # Inyectamos nuestra clave infalible
+    props['ID_MATCH'] = prop_name
 
 # Indicadores derivados
 df_geo['densidad_log'] = np.log10(df_geo['densidad_poblacional'])
@@ -137,7 +138,7 @@ DICCIONARIO_CATEGORIAS = {
         "Población": {
             "columna": "poblacion", "escala": "Blues",
             "titulo": "Población Total por País", "leyenda": "Habitantes",
-            "interpretacion": "Muestra la asimetría demográfica continental entre los núcleos del centro/oeste y la periferia."
+            "interpretacion": "Muestra la asimetría demográfica continental."
         },
         "Superficie (km²)": {
             "columna": "superficie_km2", "escala": "Greens",
@@ -194,12 +195,12 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO DEL MAPA (Exactamente tu código original)
+# DIBUJO DEL MAPA CON LOS IDS FORZADOS A MINÚSCULAS
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
-    locations='pais_geojson',
-    featureidkey='properties.NAME_MATCH',
+    locations='pais_match', # Columna obligada a minúsculas
+    featureidkey='properties.ID_MATCH', # Propiedad obligada a minúsculas
     color=cfg['columna'],
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
@@ -207,7 +208,7 @@ fig = px.choropleth(
     template='plotly_dark',
     hover_data={
         cfg['columna']: False,
-        'pais_geojson': False,
+        'pais_match': False,
         'pais_limpio': False,
         'pib_pc_fmt': True,
         'densidad_fmt': True
@@ -221,11 +222,8 @@ fig = px.choropleth(
 
 fig.update_geos(
     fitbounds="locations",
-    visible=True,
-    showcountries=True,
-    countrycolor="#444444",
-    showcoastlines=True,
-    coastlinecolor="#444444",
+    visible=False, # Oculta el resto del mundo (África, Asia, etc.)
+    showcountries=False,
     bgcolor="#0e1117"
 )
 
@@ -236,10 +234,7 @@ fig.update_layout(
     height=600
 )
 
-# --- LA SOLUCIÓN: RENDERIZAR COMO HTML PURO ---
-# Convertimos el gráfico a HTML (igual que si lo guardaras) y lo mostramos
-mapa_html = fig.to_html(include_plotlyjs="cdn", config={'displayModeBar': True})
-components.html(mapa_html, height=650, scrolling=False)
+st.plotly_chart(fig, use_container_width=True)
 
 with st.expander("📌 **Interpretación analítica del mapa**", expanded=True):
     st.write(cfg['interpretacion'])
