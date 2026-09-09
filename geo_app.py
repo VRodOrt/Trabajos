@@ -19,12 +19,12 @@ if "postgres" in st.secrets:
 else:
     CADENA_CONEXION_PG = "postgresql://etl_user:1cJXGkjERZZ7cBUszrr3PJ2ryUu1nTNT@dpg-dagi338u01pc73fvq5e0-a.frankfurt-postgres.render.com/etl_database_ir8u?sslmode=require"
 
-# TRUCO MAESTRO: Limpiar cadenas y mutar el GeoJSON DENTRO de la caché
 def limpiar_cadena(val):
     if pd.isna(val): return ""
     txt = str(val).lower().strip()
     return ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
 
+# CARGAMOS EL GEOJSON PURO, SIN ALTERARLO
 @st.cache_data(ttl=3600)
 def cargar_datos_desde_db():
     engine = create_engine(
@@ -37,23 +37,6 @@ def cargar_datos_desde_db():
     url_geojson = "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson"
     geojson = requests.get(url_geojson).json()
     
-    # Inyectamos NAME_MATCH *antes* de que Streamlit lo bloquee en caché
-    for feature in geojson['features']:
-        prop_name = limpiar_cadena(feature['properties'].get('NAME', ''))
-        
-        if 'bosnia' in prop_name:
-            feature['properties']['NAME_MATCH'] = 'Bosnia and Herzegovina'
-        elif 'serbia' in prop_name:
-            feature['properties']['NAME_MATCH'] = 'Republic of Serbia'
-        elif 'macedonia' in prop_name:
-            feature['properties']['NAME_MATCH'] = 'Macedonia'
-        elif 'czech' in prop_name:
-            feature['properties']['NAME_MATCH'] = 'Czech Republic'
-        elif 'moldova' in prop_name:
-            feature['properties']['NAME_MATCH'] = 'Moldova'
-        else:
-            feature['properties']['NAME_MATCH'] = feature['properties'].get('NAME', '')
-            
     return df, geojson
 
 try:
@@ -62,7 +45,7 @@ except Exception as e:
     st.error(f"⚠️ Error de conexión a PostgreSQL: {e}")
     st.stop()
 
-# --- 2. PREPARACIÓN DE DATOS ---
+# --- 2. PREPARACIÓN DE DATOS Y MAPEO DINÁMICO ---
 df_geo = df_indicadores.copy()
 df_geo['pais_limpio'] = df_geo['pais'].apply(limpiar_cadena)
 
@@ -70,44 +53,55 @@ cols_num = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_p
 for c in cols_num:
     df_geo[c] = pd.to_numeric(df_geo[c], errors='coerce')
 
+# Diccionario original (Base de Datos -> Inglés)
 DICCIONARIO_NOMBRES = {
-    'spain': 'Spain', 'espana': 'Spain',
-    'france': 'France', 'francia': 'France',
-    'germany': 'Germany', 'alemania': 'Germany',
-    'italy': 'Italy', 'italia': 'Italy',
+    'spain': 'Spain', 'espana': 'Spain', 'france': 'France', 'francia': 'France',
+    'germany': 'Germany', 'alemania': 'Germany', 'italy': 'Italy', 'italia': 'Italy',
     'united kingdom': 'United Kingdom', 'reino unido': 'United Kingdom',
     'portugal': 'Portugal', 'greece': 'Greece', 'grecia': 'Greece',
-    'poland': 'Poland', 'polonia': 'Poland',
-    'ukraine': 'Ukraine', 'ucrania': 'Ukraine',
-    'sweden': 'Sweden', 'suecia': 'Sweden',
-    'norway': 'Norway', 'noruega': 'Norway',
-    'finland': 'Finland', 'finlandia': 'Finland',
-    'belgium': 'Belgium', 'belgica': 'Belgium',
+    'poland': 'Poland', 'polonia': 'Poland', 'ukraine': 'Ukraine', 'ucrania': 'Ukraine',
+    'sweden': 'Sweden', 'suecia': 'Sweden', 'norway': 'Norway', 'noruega': 'Norway',
+    'finland': 'Finland', 'finlandia': 'Finland', 'belgium': 'Belgium', 'belgica': 'Belgium',
     'netherlands': 'Netherlands', 'paises bajos': 'Netherlands',
-    'switzerland': 'Switzerland', 'suiza': 'Switzerland',
-    'austria': 'Austria', 'ireland': 'Ireland', 'irlanda': 'Ireland',
-    'czechia': 'Czech Republic', 'czech republic': 'Czech Republic', 'republica checa': 'Czech Republic',
-    'romania': 'Romania', 'rumania': 'Romania',
-    'bulgaria': 'Bulgaria', 'hungary': 'Hungary', 'hungria': 'Hungary',
-    'denmark': 'Denmark', 'dinamarca': 'Denmark',
-    'slovakia': 'Slovakia', 'eslovaquia': 'Slovakia',
-    'slovenia': 'Slovenia', 'eslovenia': 'Slovenia',
-    'croatia': 'Croatia', 'croacia': 'Croatia',
+    'switzerland': 'Switzerland', 'suiza': 'Switzerland', 'austria': 'Austria', 
+    'ireland': 'Ireland', 'irlanda': 'Ireland', 'czechia': 'Czech Republic', 
+    'czech republic': 'Czech Republic', 'republica checa': 'Czech Republic',
+    'romania': 'Romania', 'rumania': 'Romania', 'bulgaria': 'Bulgaria', 
+    'hungary': 'Hungary', 'hungria': 'Hungary', 'denmark': 'Denmark', 'dinamarca': 'Denmark',
+    'slovakia': 'Slovakia', 'eslovaquia': 'Slovakia', 'slovenia': 'Slovenia', 'eslovenia': 'Slovenia',
+    'croatia': 'Croatia', 'croacia': 'Croatia', 
     'bosnia and herzegovina': 'Bosnia and Herzegovina', 'bosnia y herzegovina': 'Bosnia and Herzegovina',
     'serbia': 'Republic of Serbia', 'republic of serbia': 'Republic of Serbia',
     'north macedonia': 'Macedonia', 'macedonia': 'Macedonia',
     'albania': 'Albania', 'moldova': 'Moldova', 'moldavia': 'Moldova',
-    'belarus': 'Belarus', 'bielorrusia': 'Belarus',
-    'lithuania': 'Lithuania', 'lituania': 'Lithuania',
-    'latvia': 'Latvia', 'letonia': 'Latvia',
-    'estonia': 'Estonia', 'iceland': 'Iceland', 'islandia': 'Iceland',
-    'luxembourg': 'Luxembourg', 'luxemburgo': 'Luxembourg',
-    'malta': 'Malta', 'cyprus': 'Cyprus', 'chipre': 'Cyprus',
-    'andorra': 'Andorra', 'monaco': 'Monaco', 'san marino': 'San Marino',
-    'liechtenstein': 'Liechtenstein', 'vatican city': 'Vatican', 'vaticano': 'Vatican'
+    'belarus': 'Belarus', 'bielorrusia': 'Belarus', 'lithuania': 'Lithuania', 'lituania': 'Lithuania',
+    'latvia': 'Latvia', 'letonia': 'Latvia', 'estonia': 'Estonia', 
+    'iceland': 'Iceland', 'islandia': 'Iceland', 'luxembourg': 'Luxembourg', 'luxemburgo': 'Luxembourg',
+    'malta': 'Malta', 'cyprus': 'Cyprus', 'chipre': 'Cyprus', 'andorra': 'Andorra', 
+    'monaco': 'Monaco', 'san marino': 'San Marino', 'liechtenstein': 'Liechtenstein', 
+    'vatican city': 'Vatican', 'vaticano': 'Vatican'
 }
 
-df_geo['pais_geojson'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
+df_geo['pais_english'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
+
+# EL TRUCO ESTÁ AQUÍ: Extraemos los nombres puros del GeoJSON y creamos un índice de búsqueda
+nombres_en_geojson = {}
+for feature in geojson_europa['features']:
+    nombre_real = feature['properties'].get('NAME', '')
+    nombre_limpio = limpiar_cadena(nombre_real)
+    nombres_en_geojson[nombre_limpio] = nombre_real
+    
+    # Manejamos las excepciones conflictivas sin tocar el GeoJSON
+    if 'bosnia' in nombre_limpio: nombres_en_geojson['bosnia and herzegovina'] = nombre_real
+    if 'serbia' in nombre_limpio: nombres_en_geojson['republic of serbia'] = nombre_real
+    if 'macedonia' in nombre_limpio: nombres_en_geojson['macedonia'] = nombre_real
+    if 'czech' in nombre_limpio: nombres_en_geojson['czech republic'] = nombre_real
+    if 'moldova' in nombre_limpio: nombres_en_geojson['moldova'] = nombre_real
+
+# Ahora le decimos al DataFrame que adopte el nombre EXACTO que tiene el GeoJSON
+df_geo['pais_geojson_exacto'] = df_geo['pais_english'].apply(
+    lambda x: nombres_en_geojson.get(limpiar_cadena(x), x)
+)
 
 # Indicadores derivados
 df_geo['densidad_log'] = np.log10(df_geo['densidad_poblacional'])
@@ -119,7 +113,7 @@ df_geo['intensidad_log'] = np.log10(df_geo['pib_por_km2'])
 df_geo['pib_pc_fmt'] = df_geo['pib_per_capita'].apply(lambda x: f"{x:,.2f} €" if pd.notnull(x) else "N/A")
 df_geo['densidad_fmt'] = df_geo['densidad_poblacional'].apply(lambda x: f"{x:,.2f} hab/km²" if pd.notnull(x) else "N/A")
 
-# --- 3. DICCIONARIOS Y CONFIGURACIÓN ---
+# --- 3. DICCIONARIOS ---
 DESCRIPCION_CATEGORIAS = {
     "📐 Categoría Territorial": "Variables físicas y demográficas base de las naciones europeas.",
     "💶 Categoría Económica": "Indicadores macroeconómicos volumétricos finales.",
@@ -186,12 +180,12 @@ with col_ind:
 st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_seleccionada]}")
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO DEL MAPA
+# DIBUJO DEL MAPA USANDO LA PROPIEDAD 'NAME' ORIGINAL
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
-    locations='pais_geojson',
-    featureidkey='properties.NAME_MATCH',
+    locations='pais_geojson_exacto',
+    featureidkey='properties.NAME', # Usamos la clave limpia original del GeoJSON
     color=cfg['columna'],
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
@@ -199,8 +193,9 @@ fig = px.choropleth(
     template='plotly_dark',
     hover_data={
         cfg['columna']: False,
-        'pais_geojson': False,
+        'pais_geojson_exacto': False,
         'pais_limpio': False,
+        'pais_english': False,
         'pib_pc_fmt': True,
         'densidad_fmt': True
     },
