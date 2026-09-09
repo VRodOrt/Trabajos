@@ -12,7 +12,6 @@ st.set_page_config(
     page_icon="🇪🇺",
     layout="wide"
 )
-
 # --- 1. CONEXIÓN A POSTGRESQL Y CARGA DE DATOS ---
 if "postgres" in st.secrets:
     CADENA_CONEXION_PG = st.secrets["postgres"]["db_url"]
@@ -25,20 +24,16 @@ def cargar_datos_desde_db():
         CADENA_CONEXION_PG,
         connect_args={"sslmode": "require"}
     )
-    df = pd.read_sql("SELECT * FROM tb_indicadores_europa;", engine)
+    
+    # Se consulta la tabla directamente sin calificar esquema para respetar el search_path de Render
+    with engine.connect() as conn:
+        df = pd.read_sql_query("SELECT * FROM tb_indicadores_europa;", conn)
     
     # URL GeoJSON oficial de Europa
     url_geojson = "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson"
     geojson = requests.get(url_geojson).json()
     
     return df, geojson
-
-try:
-    df_indicadores, geojson_europa = cargar_datos_desde_db()
-except Exception as e:
-    st.error(f"⚠️ Error de conexión a PostgreSQL: {e}")
-    st.stop()
-
 # --- DIAGNÓSTICO DE DATOS EN STREAMLIT ---
 if df_indicadores.empty:
     st.warning("⚠️ La tabla 'tb_indicadores_europa' se conectó pero no contiene registros en Render.")
