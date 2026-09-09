@@ -19,6 +19,12 @@ if "postgres" in st.secrets:
 else:
     CADENA_CONEXION_PG = "postgresql://etl_user:1cJXGkjERZZ7cBUszrr3PJ2ryUu1nTNT@dpg-dagi338u01pc73fvq5e0-a.frankfurt-postgres.render.com/etl_database_ir8u?sslmode=require"
 
+# TRUCO MAESTRO: Limpiar cadenas y mutar el GeoJSON DENTRO de la caché
+def limpiar_cadena(val):
+    if pd.isna(val): return ""
+    txt = str(val).lower().strip()
+    return ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
+
 @st.cache_data(ttl=3600)
 def cargar_datos_desde_db():
     engine = create_engine(
@@ -28,10 +34,26 @@ def cargar_datos_desde_db():
     with engine.connect() as conn:
         df = pd.read_sql_query(text("SELECT * FROM tb_indicadores_europa;"), conn)
     
-    # GeoJSON centrado exclusivamente en Europa
     url_geojson = "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson"
     geojson = requests.get(url_geojson).json()
     
+    # Inyectamos NAME_MATCH *antes* de que Streamlit lo bloquee en caché
+    for feature in geojson['features']:
+        prop_name = limpiar_cadena(feature['properties'].get('NAME', ''))
+        
+        if 'bosnia' in prop_name:
+            feature['properties']['NAME_MATCH'] = 'Bosnia and Herzegovina'
+        elif 'serbia' in prop_name:
+            feature['properties']['NAME_MATCH'] = 'Republic of Serbia'
+        elif 'macedonia' in prop_name:
+            feature['properties']['NAME_MATCH'] = 'Macedonia'
+        elif 'czech' in prop_name:
+            feature['properties']['NAME_MATCH'] = 'Czech Republic'
+        elif 'moldova' in prop_name:
+            feature['properties']['NAME_MATCH'] = 'Moldova'
+        else:
+            feature['properties']['NAME_MATCH'] = feature['properties'].get('NAME', '')
+            
     return df, geojson
 
 try:
@@ -40,21 +62,14 @@ except Exception as e:
     st.error(f"⚠️ Error de conexión a PostgreSQL: {e}")
     st.stop()
 
-# --- 2. PREPARACIÓN DE DATOS Y LIMPIEZA DE CADENAS ---
-def limpiar_cadena(val):
-    if pd.isna(val): return ""
-    txt = str(val).lower().strip()
-    return ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
-
+# --- 2. PREPARACIÓN DE DATOS ---
 df_geo = df_indicadores.copy()
 df_geo['pais_limpio'] = df_geo['pais'].apply(limpiar_cadena)
 
-# Asegurar casteo de numéricos
 cols_num = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_poblacional', 'pib_per_capita']
 for c in cols_num:
     df_geo[c] = pd.to_numeric(df_geo[c], errors='coerce')
 
-# Diccionario de equivalencias universales (Base de Datos -> GeoJSON NAME)
 DICCIONARIO_NOMBRES = {
     'spain': 'Spain', 'espana': 'Spain',
     'france': 'France', 'francia': 'France',
@@ -94,36 +109,17 @@ DICCIONARIO_NOMBRES = {
 
 df_geo['pais_geojson'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
 
-# Mapear e inyectar directamente la clave NAME_MATCH en el GeoJSON
-for feature in geojson_europa['features']:
-    prop_name = limpiar_cadena(feature['properties'].get('NAME', ''))
-    
-    if 'bosnia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Bosnia and Herzegovina'
-    elif 'serbia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Republic of Serbia'
-    elif 'macedonia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Macedonia'
-    elif 'czech' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Czech Republic'
-    elif 'moldova' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Moldova'
-    else:
-        feature['properties']['NAME_MATCH'] = feature['properties'].get('NAME', '')
-
 # Indicadores derivados
 df_geo['densidad_log'] = np.log10(df_geo['densidad_poblacional'])
 df_geo['eficiencia_espacial'] = df_geo['pib_per_capita'] / df_geo['densidad_poblacional']
 df_geo['pib_por_km2'] = (df_geo['pib_miles_millones_eur'] * 1e9) / df_geo['superficie_km2']
-
 df_geo['eficiencia_log'] = np.log10(df_geo['eficiencia_espacial'])
 df_geo['intensidad_log'] = np.log10(df_geo['pib_por_km2'])
 
-# Formatters para Tooltips
 df_geo['pib_pc_fmt'] = df_geo['pib_per_capita'].apply(lambda x: f"{x:,.2f} €" if pd.notnull(x) else "N/A")
 df_geo['densidad_fmt'] = df_geo['densidad_poblacional'].apply(lambda x: f"{x:,.2f} hab/km²" if pd.notnull(x) else "N/A")
 
-# --- 3. CONFIGURACIÓN DE CATEGORÍAS Y DESCRIPCIONES ---
+# --- 3. DICCIONARIOS Y CONFIGURACIÓN ---
 DESCRIPCION_CATEGORIAS = {
     "📐 Categoría Territorial": "Variables físicas y demográficas base de las naciones europeas.",
     "💶 Categoría Económica": "Indicadores macroeconómicos volumétricos finales.",
@@ -177,23 +173,20 @@ DICCIONARIO_CATEGORIAS = {
     }
 }
 
-# --- 4. INTERFAZ Y RENDERIZADO CON PLANTILLA OSCURA ---
+# --- 4. INTERFAZ ---
 st.title("🇪🇺 Dashboard Socioeconómico de Europa")
 st.markdown("Análisis geoespacial e indicadores socioeconómicos consolidados para 44 países europeos.")
 
 col_cat, col_ind = st.columns(2)
-
 with col_cat:
     categoria_seleccionada = st.selectbox("1. Selecciona la Categoría de Análisis:", list(DICCIONARIO_CATEGORIAS.keys()))
-
 with col_ind:
     indicador_seleccionado = st.selectbox("2. Selecciona el Indicador:", list(DICCIONARIO_CATEGORIAS[categoria_seleccionada].keys()))
 
 st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_seleccionada]}")
-
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO DEL MAPA (Exactamente tu lógica local original)
+# DIBUJO DEL MAPA
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
@@ -218,12 +211,9 @@ fig = px.choropleth(
     }
 )
 
-# LA SOLUCIÓN DEFINITIVA: Fijar centro/zoom manual y ocultar África/Asia
 fig.update_geos(
-    projection_type="mercator",
-    center={"lat": 54.0, "lon": 15.0}, # Centra la cámara justo en Europa
-    projection_scale=3.5,              # Nivel de zoom perfecto
-    visible=False,                     # Apaga el mapa base para que NO dibuje África ni Asia
+    fitbounds="locations",
+    visible=False,
     bgcolor="#0e1117"
 )
 
