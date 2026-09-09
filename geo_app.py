@@ -171,11 +171,47 @@ DICCIONARIO_CATEGORIAS = {
 st.title("🇪🇺 Dashboard Socioeconómico de Europa")
 st.markdown("Análisis geoespacial e indicadores socioeconómicos consolidados para 44 países europeos.")
 
+# 1. Reservamos un contenedor vacío JUSTO DEBAJO del título
+contenedor_kpis = st.container()
+
+# 2. Mostramos los selectores
 col_cat, col_ind = st.columns(2)
 with col_cat:
     categoria_seleccionada = st.selectbox("1. Selecciona la Categoría de Análisis:", list(DICCIONARIO_CATEGORIAS.keys()))
 with col_ind:
     indicador_seleccionado = st.selectbox("2. Selecciona el Indicador:", list(DICCIONARIO_CATEGORIAS[categoria_seleccionada].keys()))
+
+# 3. Llenamos el contenedor de KPIs que dejamos arriba en función de la selección
+with contenedor_kpis:
+    st.markdown("### 📊 Visión General Continental")
+    k1, k2, k3 = st.columns(3)
+    
+    if categoria_seleccionada == "📐 Categoría Territorial":
+        k1.metric("Población Total (Europa)", f"{df_geo['poblacion'].sum() / 1e6:.1f} Millones")
+        k2.metric("Superficie Total", f"{df_geo['superficie_km2'].sum() / 1e6:.2f} M km²")
+        pais_pob_max = df_geo.loc[df_geo['poblacion'].idxmax(), 'pais']
+        k3.metric("Nación más poblada", pais_pob_max)
+
+    elif categoria_seleccionada == "💶 Categoría Económica":
+        k1.metric("PIB Total (Europa)", f"{df_geo['pib_miles_millones_eur'].sum():,.0f} mil M €")
+        k2.metric("PIB Medio por País", f"{df_geo['pib_miles_millones_eur'].mean():,.0f} mil M €")
+        pais_pib_max = df_geo.loc[df_geo['pib_miles_millones_eur'].idxmax(), 'pais']
+        k3.metric("Motor Económico (Máx PIB)", pais_pib_max)
+
+    elif categoria_seleccionada == "📊 Indicadores Base":
+        k1.metric("Densidad Media", f"{df_geo['densidad_poblacional'].mean():.1f} hab/km²")
+        k2.metric("PIB per Cápita Promedio", f"{df_geo['pib_per_capita'].mean():,.0f} €")
+        pais_pc_max = df_geo.loc[df_geo['pib_per_capita'].idxmax(), 'pais']
+        k3.metric("Líder Ingreso p.c.", pais_pc_max)
+
+    elif categoria_seleccionada == "💡 Indicadores Derivados":
+        k1.metric("Intensidad Económica Media", f"{df_geo['pib_por_km2'].mean() / 1e6:.1f} M €/km²")
+        pais_efi_max = df_geo.loc[df_geo['eficiencia_espacial'].idxmax(), 'pais']
+        k2.metric("Máxima Eficiencia Espacial", pais_efi_max)
+        pais_int_max = df_geo.loc[df_geo['pib_por_km2'].idxmax(), 'pais']
+        k3.metric("Máxima Intensidad Económica", pais_int_max)
+        
+    st.divider() # Añade una línea sutil para separar los KPIs de los selectores
 
 st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_seleccionada]}")
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
