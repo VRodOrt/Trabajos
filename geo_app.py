@@ -28,7 +28,7 @@ def cargar_datos_desde_db():
     with engine.connect() as conn:
         df = pd.read_sql_query(text("SELECT * FROM tb_indicadores_europa;"), conn)
     
-    # GeoJSON centrado exclusivamente en Europa (Sin Rusia ni Asia)
+    # GeoJSON centrado exclusivamente en Europa
     url_geojson = "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson"
     geojson = requests.get(url_geojson).json()
     
@@ -54,7 +54,7 @@ cols_num = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_p
 for c in cols_num:
     df_geo[c] = pd.to_numeric(df_geo[c], errors='coerce')
 
-# Diccionario exhaustivo que relaciona los datos de Render con la propiedad NAME exacta del GeoJSON de Europa
+# Diccionario de equivalencias universales (Base de Datos -> GeoJSON NAME)
 DICCIONARIO_NOMBRES = {
     'spain': 'Spain', 'espana': 'Spain',
     'france': 'France', 'francia': 'France',
@@ -177,7 +177,7 @@ DICCIONARIO_CATEGORIAS = {
     }
 }
 
-# --- 4. INTERFAZ Y RENDERIZADO EN STREAMLIT ---
+# --- 4. INTERFAZ Y RENDERIZADO CON PLANTILLA OSCURA ---
 st.title("🇪🇺 Dashboard Socioeconómico de Europa")
 st.markdown("Análisis geoespacial e indicadores socioeconómicos consolidados para 44 países europeos.")
 
@@ -193,7 +193,7 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO DEL MAPA COROPLÉTICO CON ENCUADRE DE GEOMETRÍA REAL (Excluye Rusia)
+# DIBUJO DEL MAPA CON TEMA OSCURO (IDÉNTICO AL IPYNB)
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
@@ -203,6 +203,7 @@ fig = px.choropleth(
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
     hover_name='pais',
+    template='plotly_dark',
     hover_data={
         cfg['columna']: False,
         'pais_geojson': False,
@@ -219,10 +220,17 @@ fig = px.choropleth(
 
 fig.update_geos(
     fitbounds="locations",
-    visible=False
+    visible=True,
+    showcountries=True,
+    countrycolor="#444444",
+    showcoastlines=True,
+    coastlinecolor="#444444",
+    bgcolor="#0e1117"
 )
 
 fig.update_layout(
+    paper_bgcolor="#0e1117",
+    plot_bgcolor="#0e1117",
     margin={"r": 0, "t": 40, "l": 0, "b": 0},
     height=600
 )
