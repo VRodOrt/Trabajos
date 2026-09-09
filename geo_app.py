@@ -94,22 +94,20 @@ DICCIONARIO_NOMBRES = {
 
 df_geo['pais_geojson'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
 
-# Mapear e inyectar directamente la clave NAME_MATCH en el GeoJSON
+# Normalizar y mapear directamente sobre la clave 'NAME' principal del GeoJSON
 for feature in geojson_europa['features']:
     prop_name = limpiar_cadena(feature['properties'].get('NAME', ''))
     
     if 'bosnia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Bosnia and Herzegovina'
+        feature['properties']['NAME'] = 'Bosnia and Herzegovina'
     elif 'serbia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Republic of Serbia'
+        feature['properties']['NAME'] = 'Republic of Serbia'
     elif 'macedonia' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Macedonia'
+        feature['properties']['NAME'] = 'Macedonia'
     elif 'czech' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Czech Republic'
+        feature['properties']['NAME'] = 'Czech Republic'
     elif 'moldova' in prop_name:
-        feature['properties']['NAME_MATCH'] = 'Moldova'
-    else:
-        feature['properties']['NAME_MATCH'] = feature['properties'].get('NAME', '')
+        feature['properties']['NAME'] = 'Moldova'
 
 # Indicadores derivados
 df_geo['densidad_log'] = np.log10(df_geo['densidad_poblacional'])
@@ -193,12 +191,12 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO DEL MAPA CON TEMA OSCURO (IDÉNTICO AL IPYNB)
+# DIBUJO DEL MAPA CON TEMA OSCURO Y ENCUADRE ROBUSTO
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
     locations='pais_geojson',
-    featureidkey='properties.NAME_MATCH',
+    featureidkey='properties.NAME',
     color=cfg['columna'],
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
@@ -218,8 +216,11 @@ fig = px.choropleth(
     }
 )
 
+# Ajuste explícito de la proyección de la cámara sobre Europa para evitar mapas vacíos
 fig.update_geos(
-    fitbounds="locations",
+    projection_type="mercator",
+    center={"lat": 54.0, "lon": 15.0},
+    projection_scale=3.5,
     visible=True,
     showcountries=True,
     countrycolor="#444444",
@@ -232,7 +233,7 @@ fig.update_layout(
     paper_bgcolor="#0e1117",
     plot_bgcolor="#0e1117",
     margin={"r": 0, "t": 40, "l": 0, "b": 0},
-    height=600
+    height=650
 )
 
 st.plotly_chart(fig, use_container_width=True)
