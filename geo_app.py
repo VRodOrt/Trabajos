@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
+import plotly.express as px
 import unicodedata
 from sqlalchemy import create_engine, text
 
@@ -34,7 +34,7 @@ except Exception as e:
     st.error(f"⚠️ Error de conexión a PostgreSQL: {e}")
     st.stop()
 
-# --- 2. PREPARACIÓN Y LIMPIEZA DE DATOS ---
+# --- 2. PREPARACIÓN Y CÁASTEO ESTRICTO DE TIPOS ---
 def limpiar_texto(val):
     if pd.isna(val): return ""
     txt = str(val).lower().strip()
@@ -43,7 +43,12 @@ def limpiar_texto(val):
 df_geo = df_indicadores.copy()
 df_geo['pais_limpio'] = df_geo['pais'].apply(limpiar_texto)
 
-# DICCIONARIO DE DICCIONARIOS ISO-3 INFALIBLE
+# Conversión forzada de valores numéricos por si PostgreSQL devolvió strings
+cols_numericas = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_poblacional', 'pib_per_capita']
+for col in cols_numericas:
+    df_geo[col] = pd.to_numeric(df_geo[col], errors='coerce')
+
+# Diccionario exhaustivo ISO Alpha-3 para Plotly
 MAPEO_ISO3 = {
     'albania': 'ALB', 'andorra': 'AND', 'austria': 'AUT', 'belarus': 'BLR', 'bielorrusia': 'BLR',
     'belgium': 'BEL', 'belgica': 'BEL', 'bosnia and herzegovina': 'BIH', 'bosnia y herzegovina': 'BIH',
@@ -63,21 +68,9 @@ MAPEO_ISO3 = {
     'united kingdom': 'GBR', 'reino unido': 'GBR', 'vatican city': 'VAT', 'vaticano': 'VAT'
 }
 
-df_geo['iso_3'] = df_geo['pais_limpio'].map(MAPEO_ISO3)
+df_geo['iso_a3'] = df_geo['pais_limpio'].map(MAPEO_ISO3)
 
-# En caso de que algún nombre no mapee, asignar por búsqueda aproximada
-for idx, row in df_geo.iterrows():
-    if pd.isna(row['iso_3']):
-        p_name = row['pais_limpio']
-        for k, v in MAPEO_ISO3.items():
-            if k in p_name or p_name in k:
-                df_geo.at[idx, 'iso_3'] = v
-                break
-
-# Filtrar sólo filas que contengan ISO de 3 letras asignado
-df_geo = df_geo.dropna(subset=['iso_3']).copy()
-
-# Transformaciones logarítmicas e indicadores
+# Indicadores derivados con cómputo numérico puro
 df_geo['densidad_log'] = np.log10(df_geo['densidad_poblacional'])
 df_geo['eficiencia_espacial'] = df_geo['pib_per_capita'] / df_geo['densidad_poblacional']
 df_geo['pib_por_km2'] = (df_geo['pib_miles_millones_eur'] * 1e9) / df_geo['superficie_km2']
@@ -85,12 +78,9 @@ df_geo['pib_por_km2'] = (df_geo['pib_miles_millones_eur'] * 1e9) / df_geo['super
 df_geo['eficiencia_log'] = np.log10(df_geo['eficiencia_espacial'])
 df_geo['intensidad_log'] = np.log10(df_geo['pib_por_km2'])
 
-# Textos limpios para tooltips
-df_geo['hover_text'] = df_geo.apply(
-    lambda r: f"<b>{r['pais']}</b><br>" +
-              f"PIB p.c.: {r['pib_per_capita']:,.2f} €<br>" +
-              f"Densidad: {r['densidad_poblacional']:,.2f} hab/km²", axis=1
-)
+# Formatters para Tooltips
+df_geo['pib_pc_fmt'] = df_geo['pib_per_capita'].apply(lambda x: f"{x:,.2f} €" if pd.notnull(x) else "N/A")
+df_geo['densidad_fmt'] = df_geo['densidad_poblacional'].apply(lambda x: f"{x:,.2f} hab/km²" if pd.notnull(x) else "N/A")
 
 # --- 3. CONFIGURACIÓN DE CATEGORÍAS Y DESCRIPCIONES ---
 DESCRIPCION_CATEGORIAS = {
@@ -146,7 +136,7 @@ DICCIONARIO_CATEGORIAS = {
     }
 }
 
-# --- 4. INTERFAZ Y RENDERIZADO CON PLOTLY GRAPH OBJECTS ---
+# --- 4. INTERFAZ Y RENDERIZADO CON MAPA ENCUADRADO Y COLOREADO ---
 st.title("🇪🇺 Dashboard Socioeconómico de Europa")
 st.markdown("Análisis geoespacial e indicadores socioeconómicos consolidados para 44 países europeos.")
 
@@ -162,29 +152,44 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO EXPLICITO MEDIANTE PLOTLY GRAPH OBJECTS (Evita la degradación a ejes XY)
-fig = go.Figure(data=go.Choropleth(
-    locations=df_geo['iso_3'],
-    z=df_geo[cfg['columna']],
-    text=df_geo['hover_text'],
-    hoverinfo="text",
-    colorscale=cfg['escala'],
-    colorbar_title=cfg['leyenda'],
-    locationmode='ISO-3'
-))
+# GENERACIÓN CON PROYECCIÓN ENCUADRADA EXACTAMENTE EN EUROPA Y COLOREADO GARANTIZADO
+fig = px.choropleth(
+    df_geo,
+    locations="iso_a3",
+    color=cfg['columna'],
+    hover_name="pais",
+    color_continuous_scale=cfg['escala'],
+    title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
+    locationmode="ISO-3",
+    hover_data={
+        cfg['columna']: False,
+        'iso_a3': False,
+        'pais_limpio': False,
+        'pib_pc_fmt': True,
+        'densidad_fmt': True
+    },
+    labels={
+        cfg['columna']: cfg['leyenda'],
+        'pib_pc_fmt': 'PIB p.c. (€): ',
+        'densidad_fmt': 'Densidad (hab/km²): '
+    }
+)
+
+# Ajuste de cámara y límites para recortar continentes ajenos y centrar Europa
+fig.update_geos(
+    scope="europe",
+    center={"lat": 54.0, "lon": 15.0},  # Centro en Europa Central
+    projection_scale=2.3,                # Nivel de zoom perfecto para Europa
+    showcountries=True,
+    countrycolor="DarkGrey",
+    showsubunits=False,
+    showframe=False,
+    bgcolor="rgba(0,0,0,0)"
+)
 
 fig.update_layout(
-    title_text=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
-    geo=dict(
-        scope='europe',
-        showframe=False,
-        showcoastlines=True,
-        projection_type='natural earth',
-        showcountries=True,
-        countrycolor='LightGrey'
-    ),
-    margin={"r":0, "t":40, "l":0, "b":0},
-    height=580
+    margin={"r": 0, "t": 40, "l": 0, "b": 0},
+    height=600
 )
 
 st.plotly_chart(fig, use_container_width=True)
