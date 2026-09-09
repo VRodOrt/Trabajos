@@ -54,7 +54,7 @@ cols_num = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_p
 for c in cols_num:
     df_geo[c] = pd.to_numeric(df_geo[c], errors='coerce')
 
-# Diccionario de equivalencias universales
+# Diccionario de equivalencias universales (Base de Datos -> GeoJSON NAME)
 DICCIONARIO_NOMBRES = {
     'spain': 'Spain', 'espana': 'Spain',
     'france': 'France', 'francia': 'France',
@@ -92,26 +92,24 @@ DICCIONARIO_NOMBRES = {
     'liechtenstein': 'Liechtenstein', 'vatican city': 'Vatican', 'vaticano': 'Vatican'
 }
 
-# SOLUCIÓN 1: Convertir TODO el diccionario a minúsculas para forzar una coincidencia absoluta
-diccionario_minusculas = {k: v.lower() for k, v in DICCIONARIO_NOMBRES.items()}
-df_geo['pais_match'] = df_geo['pais_limpio'].map(diccionario_minusculas).fillna(df_geo['pais_limpio'])
+df_geo['pais_geojson'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
 
-# SOLUCIÓN 2: Crear un ID_MATCH en el GeoJSON completamente en minúsculas y buscar en varias propiedades
+# Mapear e inyectar directamente la clave NAME_MATCH en el GeoJSON
 for feature in geojson_europa['features']:
-    props = feature['properties']
-    # A veces el GeoJSON usa 'name', otras 'NAME', otras 'ADMIN'
-    raw_name = props.get('NAME', props.get('name', props.get('ADMIN', props.get('admin', ''))))
-    prop_name = limpiar_cadena(str(raw_name))
+    prop_name = limpiar_cadena(feature['properties'].get('NAME', ''))
     
-    # Excepciones
-    if 'bosnia' in prop_name: prop_name = 'bosnia and herzegovina'
-    elif 'serbia' in prop_name: prop_name = 'republic of serbia'
-    elif 'macedonia' in prop_name: prop_name = 'macedonia'
-    elif 'czech' in prop_name: prop_name = 'czech republic'
-    elif 'moldova' in prop_name: prop_name = 'moldova'
-    
-    # Inyectamos nuestra clave infalible
-    props['ID_MATCH'] = prop_name
+    if 'bosnia' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Bosnia and Herzegovina'
+    elif 'serbia' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Republic of Serbia'
+    elif 'macedonia' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Macedonia'
+    elif 'czech' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Czech Republic'
+    elif 'moldova' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Moldova'
+    else:
+        feature['properties']['NAME_MATCH'] = feature['properties'].get('NAME', '')
 
 # Indicadores derivados
 df_geo['densidad_log'] = np.log10(df_geo['densidad_poblacional'])
@@ -138,7 +136,7 @@ DICCIONARIO_CATEGORIAS = {
         "Población": {
             "columna": "poblacion", "escala": "Blues",
             "titulo": "Población Total por País", "leyenda": "Habitantes",
-            "interpretacion": "Muestra la asimetría demográfica continental."
+            "interpretacion": "Muestra la asimetría demográfica continental entre los núcleos del centro/oeste y la periferia."
         },
         "Superficie (km²)": {
             "columna": "superficie_km2", "escala": "Greens",
@@ -195,12 +193,12 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO DEL MAPA CON LOS IDS FORZADOS A MINÚSCULAS
+# DIBUJO DEL MAPA (Exactamente tu lógica local original)
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
-    locations='pais_match', # Columna obligada a minúsculas
-    featureidkey='properties.ID_MATCH', # Propiedad obligada a minúsculas
+    locations='pais_geojson',
+    featureidkey='properties.NAME_MATCH',
     color=cfg['columna'],
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
@@ -208,7 +206,7 @@ fig = px.choropleth(
     template='plotly_dark',
     hover_data={
         cfg['columna']: False,
-        'pais_match': False,
+        'pais_geojson': False,
         'pais_limpio': False,
         'pib_pc_fmt': True,
         'densidad_fmt': True
@@ -220,10 +218,12 @@ fig = px.choropleth(
     }
 )
 
+# LA SOLUCIÓN DEFINITIVA: Fijar centro/zoom manual y ocultar África/Asia
 fig.update_geos(
-    fitbounds="locations",
-    visible=False, # Oculta el resto del mundo (África, Asia, etc.)
-    showcountries=False,
+    projection_type="mercator",
+    center={"lat": 54.0, "lon": 15.0}, # Centra la cámara justo en Europa
+    projection_scale=3.5,              # Nivel de zoom perfecto
+    visible=False,                     # Apaga el mapa base para que NO dibuje África ni Asia
     bgcolor="#0e1117"
 )
 
