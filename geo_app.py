@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import requests
 import unicodedata
 from sqlalchemy import create_engine, text
 
@@ -26,51 +27,91 @@ def cargar_datos_desde_db():
     )
     with engine.connect() as conn:
         df = pd.read_sql_query(text("SELECT * FROM tb_indicadores_europa;"), conn)
-    return df
+    
+    # GeoJSON centrado exclusivamente en Europa (Sin Rusia ni Asia)
+    url_geojson = "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson"
+    geojson = requests.get(url_geojson).json()
+    
+    return df, geojson
 
 try:
-    df_indicadores = cargar_datos_desde_db()
+    df_indicadores, geojson_europa = cargar_datos_desde_db()
 except Exception as e:
     st.error(f"⚠️ Error de conexión a PostgreSQL: {e}")
     st.stop()
 
-# --- 2. PREPARACIÓN Y CÁASTEO ESTRICTO DE TIPOS ---
-def limpiar_texto(val):
+# --- 2. PREPARACIÓN DE DATOS Y LIMPIEZA DE CADENAS ---
+def limpiar_cadena(val):
     if pd.isna(val): return ""
     txt = str(val).lower().strip()
     return ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
 
 df_geo = df_indicadores.copy()
-df_geo['pais_limpio'] = df_geo['pais'].apply(limpiar_texto)
+df_geo['pais_limpio'] = df_geo['pais'].apply(limpiar_cadena)
 
-# Conversión forzada de valores numéricos por si PostgreSQL devolvió strings
-cols_numericas = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_poblacional', 'pib_per_capita']
-for col in cols_numericas:
-    df_geo[col] = pd.to_numeric(df_geo[col], errors='coerce')
+# Asegurar casteo de numéricos
+cols_num = ['poblacion', 'superficie_km2', 'pib_miles_millones_eur', 'densidad_poblacional', 'pib_per_capita']
+for c in cols_num:
+    df_geo[c] = pd.to_numeric(df_geo[c], errors='coerce')
 
-# Diccionario exhaustivo ISO Alpha-3 para Plotly
-MAPEO_ISO3 = {
-    'albania': 'ALB', 'andorra': 'AND', 'austria': 'AUT', 'belarus': 'BLR', 'bielorrusia': 'BLR',
-    'belgium': 'BEL', 'belgica': 'BEL', 'bosnia and herzegovina': 'BIH', 'bosnia y herzegovina': 'BIH',
-    'bulgaria': 'BGR', 'croatia': 'HRV', 'croacia': 'HRV', 'cyprus': 'CYP', 'chipre': 'CYP',
-    'czechia': 'CZE', 'czech republic': 'CZE', 'republica checa': 'CZE', 'denmark': 'DNK', 'dinamarca': 'DNK',
-    'estonia': 'EST', 'finland': 'FIN', 'finlandia': 'FIN', 'france': 'FRA', 'francia': 'FRA',
-    'germany': 'DEU', 'alemania': 'DEU', 'greece': 'GRC', 'grecia': 'GRC', 'hungary': 'HUN', 'hungria': 'HUN',
-    'iceland': 'ISL', 'islandia': 'ISL', 'ireland': 'IRL', 'irlanda': 'IRL', 'italy': 'ITA', 'italia': 'ITA',
-    'latvia': 'LVA', 'letonia': 'LVA', 'liechtenstein': 'LIE', 'lithuania': 'LTU', 'lituania': 'LTU',
-    'luxembourg': 'LUX', 'luxemburgo': 'LUX', 'malta': 'MLT', 'moldova': 'MDA', 'moldavia': 'MDA',
-    'monaco': 'MCO', 'montenegro': 'MNE', 'netherlands': 'NLD', 'paises bajos': 'NLD',
-    'north macedonia': 'MKD', 'macedonia del norte': 'MKD', 'macedonia': 'MKD', 'norway': 'NOR', 'noruega': 'NOR',
-    'poland': 'POL', 'polonia': 'POL', 'portugal': 'PRT', 'romania': 'ROU', 'rumania': 'ROU',
-    'san marino': 'SMR', 'serbia': 'SRB', 'republic of serbia': 'SRB', 'slovakia': 'SVK', 'eslovaquia': 'SVK',
-    'slovenia': 'SVN', 'eslovenia': 'SVN', 'spain': 'ESP', 'espana': 'ESP', 'sweden': 'SWE', 'suecia': 'SWE',
-    'switzerland': 'CHE', 'suiza': 'CHE', 'ukraine': 'UKR', 'ucrania': 'UKR',
-    'united kingdom': 'GBR', 'reino unido': 'GBR', 'vatican city': 'VAT', 'vaticano': 'VAT'
+# Diccionario exhaustivo que relaciona los datos de Render con la propiedad NAME exacta del GeoJSON de Europa
+DICCIONARIO_NOMBRES = {
+    'spain': 'Spain', 'espana': 'Spain',
+    'france': 'France', 'francia': 'France',
+    'germany': 'Germany', 'alemania': 'Germany',
+    'italy': 'Italy', 'italia': 'Italy',
+    'united kingdom': 'United Kingdom', 'reino unido': 'United Kingdom',
+    'portugal': 'Portugal', 'greece': 'Greece', 'grecia': 'Greece',
+    'poland': 'Poland', 'polonia': 'Poland',
+    'ukraine': 'Ukraine', 'ucrania': 'Ukraine',
+    'sweden': 'Sweden', 'suecia': 'Sweden',
+    'norway': 'Norway', 'noruega': 'Norway',
+    'finland': 'Finland', 'finlandia': 'Finland',
+    'belgium': 'Belgium', 'belgica': 'Belgium',
+    'netherlands': 'Netherlands', 'paises bajos': 'Netherlands',
+    'switzerland': 'Switzerland', 'suiza': 'Switzerland',
+    'austria': 'Austria', 'ireland': 'Ireland', 'irlanda': 'Ireland',
+    'czechia': 'Czech Republic', 'czech republic': 'Czech Republic', 'republica checa': 'Czech Republic',
+    'romania': 'Romania', 'rumania': 'Romania',
+    'bulgaria': 'Bulgaria', 'hungary': 'Hungary', 'hungria': 'Hungary',
+    'denmark': 'Denmark', 'dinamarca': 'Denmark',
+    'slovakia': 'Slovakia', 'eslovaquia': 'Slovakia',
+    'slovenia': 'Slovenia', 'eslovenia': 'Slovenia',
+    'croatia': 'Croatia', 'croacia': 'Croatia',
+    'bosnia and herzegovina': 'Bosnia and Herzegovina', 'bosnia y herzegovina': 'Bosnia and Herzegovina',
+    'serbia': 'Republic of Serbia', 'republic of serbia': 'Republic of Serbia',
+    'north macedonia': 'Macedonia', 'macedonia': 'Macedonia',
+    'albania': 'Albania', 'moldova': 'Moldova', 'moldavia': 'Moldova',
+    'belarus': 'Belarus', 'bielorrusia': 'Belarus',
+    'lithuania': 'Lithuania', 'lituania': 'Lithuania',
+    'latvia': 'Latvia', 'letonia': 'Latvia',
+    'estonia': 'Estonia', 'iceland': 'Iceland', 'islandia': 'Iceland',
+    'luxembourg': 'Luxembourg', 'luxemburgo': 'Luxembourg',
+    'malta': 'Malta', 'cyprus': 'Cyprus', 'chipre': 'Cyprus',
+    'andorra': 'Andorra', 'monaco': 'Monaco', 'san marino': 'San Marino',
+    'liechtenstein': 'Liechtenstein', 'vatican city': 'Vatican', 'vaticano': 'Vatican'
 }
 
-df_geo['iso_a3'] = df_geo['pais_limpio'].map(MAPEO_ISO3)
+df_geo['pais_geojson'] = df_geo['pais_limpio'].map(DICCIONARIO_NOMBRES).fillna(df_geo['pais'].astype(str).str.title())
 
-# Indicadores derivados con cómputo numérico puro
+# Mapear e inyectar directamente la clave NAME_MATCH en el GeoJSON
+for feature in geojson_europa['features']:
+    prop_name = limpiar_cadena(feature['properties'].get('NAME', ''))
+    
+    if 'bosnia' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Bosnia and Herzegovina'
+    elif 'serbia' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Republic of Serbia'
+    elif 'macedonia' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Macedonia'
+    elif 'czech' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Czech Republic'
+    elif 'moldova' in prop_name:
+        feature['properties']['NAME_MATCH'] = 'Moldova'
+    else:
+        feature['properties']['NAME_MATCH'] = feature['properties'].get('NAME', '')
+
+# Indicadores derivados
 df_geo['densidad_log'] = np.log10(df_geo['densidad_poblacional'])
 df_geo['eficiencia_espacial'] = df_geo['pib_per_capita'] / df_geo['densidad_poblacional']
 df_geo['pib_por_km2'] = (df_geo['pib_miles_millones_eur'] * 1e9) / df_geo['superficie_km2']
@@ -136,7 +177,7 @@ DICCIONARIO_CATEGORIAS = {
     }
 }
 
-# --- 4. INTERFAZ Y RENDERIZADO CON MAPA ENCUADRADO Y COLOREADO ---
+# --- 4. INTERFAZ Y RENDERIZADO EN STREAMLIT ---
 st.title("🇪🇺 Dashboard Socioeconómico de Europa")
 st.markdown("Análisis geoespacial e indicadores socioeconómicos consolidados para 44 países europeos.")
 
@@ -152,18 +193,19 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# GENERACIÓN CON PROYECCIÓN ENCUADRADA EXACTAMENTE EN EUROPA Y COLOREADO GARANTIZADO
+# DIBUJO DEL MAPA COROPLÉTICO CON ENCUADRE DE GEOMETRÍA REAL (Excluye Rusia)
 fig = px.choropleth(
     df_geo,
-    locations="iso_a3",
+    geojson=geojson_europa,
+    locations='pais_geojson',
+    featureidkey='properties.NAME_MATCH',
     color=cfg['columna'],
-    hover_name="pais",
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
-    locationmode="ISO-3",
+    hover_name='pais',
     hover_data={
         cfg['columna']: False,
-        'iso_a3': False,
+        'pais_geojson': False,
         'pais_limpio': False,
         'pib_pc_fmt': True,
         'densidad_fmt': True
@@ -175,16 +217,9 @@ fig = px.choropleth(
     }
 )
 
-# Ajuste de cámara y límites para recortar continentes ajenos y centrar Europa
 fig.update_geos(
-    scope="europe",
-    center={"lat": 54.0, "lon": 15.0},  # Centro en Europa Central
-    projection_scale=2.3,                # Nivel de zoom perfecto para Europa
-    showcountries=True,
-    countrycolor="DarkGrey",
-    showsubunits=False,
-    showframe=False,
-    bgcolor="rgba(0,0,0,0)"
+    fitbounds="locations",
+    visible=False
 )
 
 fig.update_layout(
