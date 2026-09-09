@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import requests
 import unicodedata
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 # --- CONFIGURACIÓN DE PÁGINA STREAMLIT ---
 st.set_page_config(
@@ -12,6 +12,7 @@ st.set_page_config(
     page_icon="🇪🇺",
     layout="wide"
 )
+
 # --- 1. CONEXIÓN A POSTGRESQL Y CARGA DE DATOS ---
 if "postgres" in st.secrets:
     CADENA_CONEXION_PG = st.secrets["postgres"]["db_url"]
@@ -25,18 +26,18 @@ def cargar_datos_desde_db():
         connect_args={"sslmode": "require"}
     )
     
-    # Se consulta la tabla directamente sin calificar esquema para respetar el search_path de Render
     with engine.connect() as conn:
-        df = pd.read_sql_query("SELECT * FROM tb_indicadores_europa;", conn)
+        df = pd.read_sql_query(text("SELECT * FROM tb_indicadores_europa;"), conn)
     
-    # URL GeoJSON oficial de Europa
     url_geojson = "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson"
     geojson = requests.get(url_geojson).json()
     
     return df, geojson
-# --- DIAGNÓSTICO DE DATOS EN STREAMLIT ---
-if df_indicadores.empty:
-    st.warning("⚠️ La tabla 'tb_indicadores_europa' se conectó pero no contiene registros en Render.")
+
+try:
+    df_indicadores, geojson_europa = cargar_datos_desde_db()
+except Exception as e:
+    st.error(f"⚠️ Error de conexión a PostgreSQL: {e}")
     st.stop()
 
 # --- 2. FUNCIONES DE LIMPIEZA Y PREPARACIÓN ---
