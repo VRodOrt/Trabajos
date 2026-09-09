@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import requests
 import unicodedata
+import streamlit.components.v1 as components
 from sqlalchemy import create_engine, text
 
 # --- CONFIGURACIÓN DE PÁGINA STREAMLIT ---
@@ -193,7 +194,7 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# DIBUJO DEL MAPA
+# DIBUJO DEL MAPA (Exactamente tu código original)
 fig = px.choropleth(
     df_geo,
     geojson=geojson_europa,
@@ -218,10 +219,13 @@ fig = px.choropleth(
     }
 )
 
-# LA CORRECCIÓN CLAVE: visible=False apaga los continentes de fondo (África, Asia, etc.), fitbounds encuadra el GeoJSON.
 fig.update_geos(
     fitbounds="locations",
-    visible=False,
+    visible=True,
+    showcountries=True,
+    countrycolor="#444444",
+    showcoastlines=True,
+    coastlinecolor="#444444",
     bgcolor="#0e1117"
 )
 
@@ -232,7 +236,10 @@ fig.update_layout(
     height=600
 )
 
-st.plotly_chart(fig, use_container_width=True)
+# --- LA SOLUCIÓN: RENDERIZAR COMO HTML PURO ---
+# Convertimos el gráfico a HTML (igual que si lo guardaras) y lo mostramos
+mapa_html = fig.to_html(include_plotlyjs="cdn", config={'displayModeBar': True})
+components.html(mapa_html, height=650, scrolling=False)
 
 with st.expander("📌 **Interpretación analítica del mapa**", expanded=True):
     st.write(cfg['interpretacion'])
