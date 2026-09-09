@@ -26,8 +26,8 @@ def cargar_datos_desde_db():
     )
     df = pd.read_sql("SELECT * FROM tb_indicadores_europa;", engine)
     
-    # URL GeoJSON oficial de Europa
-    url_geojson = "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson"
+    # GeoJSON oficial de países del mundo (GeoJSON de alta compatibilidad con ID de 3 letras)
+    url_geojson = "https://raw.githubusercontent.com/python-visualization/folium-example-data/main/world_countries.json"
     geojson = requests.get(url_geojson).json()
     
     return df, geojson
@@ -56,52 +56,23 @@ df_geo['intensidad_log'] = np.log10(df_geo['pib_por_km2'])
 df_geo['pib_pc_fmt'] = df_geo['pib_per_capita'].apply(lambda x: f"{x:,.2f} €")
 df_geo['densidad_fmt'] = df_geo['densidad_poblacional'].apply(lambda x: f"{x:,.2f} hab/km²")
 
-# --- 3. DICCIONARIO Y NORMALIZACIÓN TOPOLÓGICA INFALIBLE ---
-MAPEO_NORMALIZADO = {
-    'bosnia y herzegovina': 'Bosnia and Herzegovina',
-    'bosnia and herzegovina': 'Bosnia and Herzegovina',
-    'bosnia and herz.': 'Bosnia and Herzegovina',
-    'bosnia herzegovina': 'Bosnia and Herzegovina',
-    'north macedonia': 'Macedonia',
-    'macedonia del norte': 'Macedonia',
-    'macedonia': 'Macedonia',
-    'moldavia': 'Moldova',
-    'moldova': 'Moldova',
-    'república checa': 'Czech Republic',
-    'republica checa': 'Czech Republic',
-    'czechia': 'Czech Republic',
-    'czech republic': 'Czech Republic',
-    'serbia': 'Republic of Serbia',
-    'republic of serbia': 'Republic of Serbia'
+# --- 3. MAPEADOR DE NOMBRES A ISO3 PARA PLOTLY ---
+MAPEO_ISO3 = {
+    'albania': 'ALB', 'andorra': 'AND', 'austria': 'AUT', 'belarus': 'BLR',
+    'belgium': 'BEL', 'bosnia and herzegovina': 'BIH', 'bulgaria': 'BGR',
+    'croatia': 'HRV', 'cyprus': 'CYP', 'czechia': 'CZE', 'czech republic': 'CZE',
+    'denmark': 'DNK', 'estonia': 'EST', 'finland': 'FIN', 'france': 'FRA',
+    'germany': 'DEU', 'greece': 'GRC', 'hungary': 'HUN', 'iceland': 'ISL',
+    'ireland': 'IRL', 'italy': 'ITA', 'latvia': 'LVA', 'liechtenstein': 'LIE',
+    'lithuania': 'LTU', 'luxembourg': 'LUX', 'malta': 'MLT', 'moldova': 'MDA',
+    'monaco': 'MCO', 'montenegro': 'MNE', 'netherlands': 'NLD', 'north macedonia': 'MKD',
+    'norway': 'NOR', 'poland': 'POL', 'portugal': 'PRT', 'romania': 'ROU',
+    'san marino': 'SMR', 'serbia': 'SRB', 'slovakia': 'SVK', 'slovenia': 'SVN',
+    'spain': 'ESP', 'sweden': 'SWE', 'switzerland': 'CHE', 'ukraine': 'UKR',
+    'united kingdom': 'GBR', 'vatican city': 'VAT'
 }
 
-df_geo['pais_key'] = df_geo['pais_clean'].str.lower()
-df_geo['pais_mapa'] = df_geo['pais_key'].map(MAPEO_NORMALIZADO).fillna(df_geo['pais_clean']).str.title()
-
-# Normalización del GeoJSON: Forzamos que 'NAME' exista de forma explícita y normalizada
-for feature in geojson_europa['features']:
-    props = feature['properties']
-    # Tomar el nombre del país desde cualquier propiedad posible del GeoJSON
-    nombre_raw = str(props.get('NAME') or props.get('name') or props.get('NAME_LONG') or '').strip().lower()
-    
-    if 'bosnia' in nombre_raw or 'herz' in nombre_raw:
-        props['NAME_MATCH'] = 'Bosnia And Herzegovina'
-    elif 'macedonia' in nombre_raw:
-        props['NAME_MATCH'] = 'Macedonia'
-    elif 'moldova' in nombre_raw or 'moldavia' in nombre_raw:
-        props['NAME_MATCH'] = 'Moldova'
-    elif 'serbia' in nombre_raw:
-        props['NAME_MATCH'] = 'Republic Of Serbia'
-    elif 'czech' in nombre_raw:
-        props['NAME_MATCH'] = 'Czech Republic'
-    else:
-        props['NAME_MATCH'] = str(props.get('NAME') or props.get('name') or '').title()
-
-# Emparejar la columna con el nuevo campo mapeado
-df_geo['pais_mapa'] = df_geo['pais_mapa'].replace({
-    'Bosnia And Herzegovina': 'Bosnia And Herzegovina',
-    'Republic Of Serbia': 'Republic Of Serbia'
-})
+df_geo['iso_a3'] = df_geo['pais_clean'].str.lower().map(MAPEO_ISO3)
 
 # --- 4. CONFIGURACIÓN DE CATEGORÍAS Y DESCRIPCIONES ---
 DESCRIPCION_CATEGORIAS = {
@@ -118,7 +89,7 @@ DICCIONARIO_CATEGORIAS = {
             "escala": "Blues",
             "titulo": "Población Total por País",
             "leyenda": "Habitantes",
-            "interpretacion": "Muestra una marcada asimetría demográfica continental."
+            "interpretacion": "Muestra una marcada asimetría demográfica continental. Países del eje central y occidental (Alemania, Francia, Italia) actúan como núcleos de volumen."
         },
         "Superficie (km²)": {
             "columna": "superficie_km2",
@@ -193,21 +164,18 @@ st.info(f"ℹ️ **Sobre esta sección:** {DESCRIPCION_CATEGORIAS[categoria_sele
 
 cfg = DICCIONARIO_CATEGORIAS[categoria_seleccionada][indicador_seleccionado]
 
-# Creación explícita del gráfico mapa coroplético
+# GENERACIÓN CON PROYECCIÓN NATIVA DE PLOTLY MEDIANTE ISO-3 (Sin fallos de renderizado)
 fig = px.choropleth(
     df_geo,
-    geojson=geojson_europa,
-    locations='pais_mapa',
-    featureidkey='properties.NAME_MATCH',
+    locations='iso_a3',
     color=cfg['columna'],
+    hover_name='pais',
     color_continuous_scale=cfg['escala'],
     title=f"<b>Mapa de Europa: {cfg['titulo']}</b>",
-    hover_name='pais',
+    scope='europe', # Fuerza la proyección exclusiva en el continente europeo
     hover_data={
         cfg['columna']: False,
-        'pais_mapa': False,
-        'pais_clean': False,
-        'pais_key': False,
+        'iso_a3': False,
         'pib_pc_fmt': True,
         'densidad_fmt': True
     },
@@ -219,12 +187,14 @@ fig = px.choropleth(
 )
 
 fig.update_geos(
-    fitbounds="locations",
-    visible=False,
     showcountries=True,
-    countrycolor="LightGrey"
+    countrycolor="LightGrey",
+    showsubunits=True,
+    showframe=False,
+    projection_type="natural earth"
 )
-fig.update_layout(margin={"r":0, "t":40, "l":0, "b":0}, height=560)
+
+fig.update_layout(margin={"r":0, "t":40, "l":0, "b":0}, height=580)
 
 st.plotly_chart(fig, use_container_width=True)
 
